@@ -1,0 +1,217 @@
+import type { ApiEndpoint } from '../../../types/api';
+import { zuoraEnvironments } from '../../environments';
+
+export const put_contactEndpoint: ApiEndpoint = {
+  "id": "put-contact",
+  "name": "Update a contact",
+  "description": "",
+  "method": "PUT",
+  "path": "/v1/contacts/{contactId}",
+  "baseUrl": "https://rest.test.zuora.com",
+  "environments": zuoraEnvironments,
+  "requiresAuth": true,
+  "authType": "bearer",
+  "pathParams": [
+    {
+      "name": "contactId",
+      "label": "Contact Id",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "bodyFields": [
+    {
+      "name": "address1",
+      "label": "Address1",
+      "type": "string",
+      "required": false,
+      "maxLength": 255,
+      "section": "Additional Fields"
+    },
+    {
+      "name": "address2",
+      "label": "Address2",
+      "type": "string",
+      "required": false,
+      "maxLength": 255,
+      "section": "Additional Fields"
+    },
+    {
+      "name": "city",
+      "label": "City",
+      "type": "string",
+      "required": false,
+      "maxLength": 100,
+      "section": "Additional Fields"
+    },
+    {
+      "name": "country",
+      "label": "Country",
+      "type": "string",
+      "required": false,
+      "maxLength": 64,
+      "section": "Additional Fields"
+    },
+    {
+      "name": "county",
+      "label": "County",
+      "type": "string",
+      "required": false,
+      "maxLength": 100,
+      "section": "Additional Fields"
+    },
+    {
+      "name": "fax",
+      "label": "Fax",
+      "type": "string",
+      "required": false,
+      "maxLength": 40,
+      "section": "Additional Fields"
+    },
+    {
+      "name": "homePhone",
+      "label": "Home Phone",
+      "type": "string",
+      "required": false,
+      "maxLength": 40,
+      "section": "Additional Fields"
+    },
+    {
+      "name": "mobilePhone",
+      "label": "Mobile Phone",
+      "type": "string",
+      "required": false,
+      "maxLength": 100,
+      "section": "Additional Fields"
+    },
+    {
+      "name": "otherPhone",
+      "label": "Other Phone",
+      "type": "string",
+      "required": false,
+      "maxLength": 40,
+      "section": "Additional Fields"
+    },
+    {
+      "name": "otherPhoneType",
+      "label": "Other Phone Type",
+      "type": "string",
+      "required": false,
+      "enum": [
+        "Work",
+        "Mobile",
+        "Home",
+        "Other"
+      ],
+      "section": "Additional Fields"
+    },
+    {
+      "name": "state",
+      "label": "State",
+      "type": "string",
+      "required": false,
+      "maxLength": 100,
+      "section": "Additional Fields"
+    },
+    {
+      "name": "workPhone",
+      "label": "Work Phone",
+      "type": "string",
+      "required": false,
+      "maxLength": 40,
+      "section": "Additional Fields"
+    },
+    {
+      "name": "zipCode",
+      "label": "Zip Code",
+      "type": "string",
+      "required": false,
+      "maxLength": 20,
+      "section": "Additional Fields"
+    },
+    {
+      "name": "asBillTo",
+      "label": "As Bill To",
+      "type": "boolean",
+      "required": false,
+      "section": "Invoice & Document Settings"
+    },
+    {
+      "name": "asShipTo",
+      "label": "As Ship To",
+      "type": "boolean",
+      "required": false,
+      "section": "Contact Information"
+    },
+    {
+      "name": "asSoldTo",
+      "label": "As Sold To",
+      "type": "boolean",
+      "required": false,
+      "section": "Contact Information"
+    },
+    {
+      "name": "contactDescription",
+      "label": "Contact Description",
+      "type": "string",
+      "required": false,
+      "maxLength": 100,
+      "section": "Contact Information"
+    },
+    {
+      "name": "firstName",
+      "label": "First Name",
+      "type": "string",
+      "required": false,
+      "maxLength": 100,
+      "section": "Account Settings"
+    },
+    {
+      "name": "lastName",
+      "label": "Last Name",
+      "type": "string",
+      "required": false,
+      "maxLength": 100,
+      "section": "Account Settings"
+    },
+    {
+      "name": "nickname",
+      "label": "Nickname",
+      "type": "string",
+      "required": false,
+      "maxLength": 100,
+      "section": "Account Settings"
+    },
+    {
+      "name": "personalEmail",
+      "label": "Personal Email",
+      "type": "string",
+      "required": false,
+      "maxLength": 80,
+      "section": "Communication Settings"
+    },
+    {
+      "name": "workEmail",
+      "label": "Work Email",
+      "type": "string",
+      "required": false,
+      "maxLength": 80,
+      "section": "Communication Settings"
+    },
+    {
+      "name": "taxRegion",
+      "label": "Tax Region",
+      "type": "string",
+      "required": false,
+      "maxLength": 100,
+      "section": "Tax Settings"
+    }
+  ],
+  "headers": {
+    "Content-Type": "application/json",
+    "Zuora-Track-Id": "",
+    "Zuora-Entity-Ids": "",
+    "Zuora-Org-Ids": "",
+    "Zuora-Version": ""
+  }
+};
