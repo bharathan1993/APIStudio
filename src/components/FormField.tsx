@@ -8,17 +8,45 @@ interface FormFieldProps {
   onTouched?: (path: string) => void;
   path?: string;
   className?: string;
+  error?: string;
 }
 
-export const FormField = ({ field, value, onChange, onTouched, path = '', className = '' }: FormFieldProps) => {
+export const FormField = ({ field, value, onChange, onTouched, path = '', className = '', error }: FormFieldProps) => {
 
   const [isExpanded, setIsExpanded] = useState(field.required || false);
 
-  const [showTooltip, setShowTooltip] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   const fieldPath = path ? `${path}.${field.name}` : field.name;
 
-  const displayName = field.name;
+  const displayName = field.label || field.name;
+
+  const sampleValue =
+    field.sampleValue ??
+    field.defaultValue ??
+    field.enum?.[0] ??
+    field.placeholder ??
+    (field.type === 'date'
+      ? '2026-01-31'
+      : field.type === 'email'
+      ? 'user@example.com'
+      : field.type === 'number'
+      ? 10
+      : field.type === 'boolean'
+      ? false
+      : field.itemEnum?.[0]);
+
+  const validationRules = [
+    field.minLength !== undefined ? `Min ${field.minLength} chars` : null,
+    field.maxLength !== undefined ? `Max ${field.maxLength} chars` : null,
+    field.pattern ? `Pattern: ${field.pattern}` : null,
+    field.enum?.length ? `${field.enum.length} accepted values` : null,
+    field.itemEnum?.length ? `${field.itemEnum.length} accepted item values` : null,
+  ].filter(Boolean);
+
+  const copyText = (text: string) => {
+    navigator.clipboard?.writeText(text).catch(() => {});
+  };
 
 
 
@@ -48,81 +76,85 @@ export const FormField = ({ field, value, onChange, onTouched, path = '', classN
 
 
   const LabelWithTooltip = ({ leftChild }: { leftChild?: React.ReactNode }) => (
-
-    <div className="flex items-center gap-2 relative">
-
-      {leftChild}
-
-      <div className="flex items-center gap-1.5 flex-wrap">
-
-        <label 
-
-          htmlFor={field.type !== 'object' ? fieldPath : undefined}
-
-          className={`block text-sm font-medium text-slate-700 dark:text-slate-300 ${field.type === 'object' ? 'cursor-pointer' : ''}`}
-
-          onClick={field.type === 'object' ? () => setIsExpanded(!isExpanded) : undefined}
-
-        >
-
-          {displayName}
-
-          {field.required && <span className="text-rose-500 ml-1">*</span>}
-
-        </label>
-
-        
-
-        {field.description && (
-
-          <div 
-
-            className="relative flex items-center"
-
-            onMouseEnter={() => setShowTooltip(true)}
-
-            onMouseLeave={() => setShowTooltip(false)}
-
+    <div className="relative">
+      <div className="flex items-start gap-2">
+        {leftChild}
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 flex-wrap">
+          <label
+            htmlFor={field.type !== 'object' ? fieldPath : undefined}
+            className={`block text-sm font-semibold text-slate-800 dark:text-slate-200 ${field.type === 'object' ? 'cursor-pointer' : ''}`}
+            onClick={field.type === 'object' ? () => setIsExpanded(!isExpanded) : undefined}
           >
-
-            <svg 
-
-              className="w-4 h-4 text-slate-400 hover:text-zuora-500 dark:text-slate-500 dark:hover:text-zuora-400 cursor-help transition-colors" 
-
-              fill="none" 
-
-              viewBox="0 0 24 24" 
-
-              stroke="currentColor"
-
+            {displayName}
+            {field.required && <span className="text-rose-500 ml-1">*</span>}
+          </label>
+          <span className="font-mono text-[11px] text-slate-400 dark:text-slate-500">{field.name}</span>
+          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+            field.required
+              ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-500/20'
+              : 'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+          }`}>
+            {field.required ? 'Required' : 'Optional'}
+          </span>
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-zuora-50 dark:bg-zuora-500/10 text-zuora-700 dark:text-zuora-300 border border-zuora-200 dark:border-zuora-500/20">
+            {field.type}
+          </span>
+          {(field.description || sampleValue !== undefined || validationRules.length > 0) && (
+            <button
+              type="button"
+              onClick={() => setShowHelp((open) => !open)}
+              className="text-xs font-medium text-zuora-600 dark:text-zuora-400 hover:text-zuora-700 dark:hover:text-zuora-300 hover:underline"
+              aria-expanded={showHelp}
             >
-
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-
-            </svg>
-
-            
-
-            {showTooltip && (
-
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2 bg-slate-800 dark:bg-slate-700 text-white text-xs rounded-lg shadow-lg z-50 pointer-events-none">
-
-                {field.description}
-
-                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800 dark:border-t-slate-700"></div>
-
-              </div>
-
-            )}
-
-          </div>
-
-        )}
-
+              {showHelp ? 'Hide help' : 'Help'}
+            </button>
+          )}
+        </div>
       </div>
 
+      {showHelp && (
+        <div className="mt-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3 text-xs text-slate-600 dark:text-slate-300 space-y-2">
+          {field.description && (
+            <div>
+              <div className="font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-[10px]">Description</div>
+              <p className="mt-1 leading-relaxed">{field.description}</p>
+            </div>
+          )}
+          <div className="grid gap-2 sm:grid-cols-2">
+            {sampleValue !== undefined && (
+              <div>
+                <div className="font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-[10px]">Sample</div>
+                <button
+                  type="button"
+                  onClick={() => copyText(String(sampleValue))}
+                  className="mt-1 font-mono text-left text-zuora-700 dark:text-zuora-300 hover:underline break-all"
+                  title="Copy sample value"
+                >
+                  {String(sampleValue)}
+                </button>
+              </div>
+            )}
+            {validationRules.length > 0 && (
+              <div>
+                <div className="font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-[10px]">Validation</div>
+                <div className="mt-1 space-y-1">
+                  {validationRules.map((rule) => (
+                    <div key={rule}>{rule}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => copyText(field.name)}
+            className="text-[11px] font-medium text-slate-500 dark:text-slate-400 hover:text-zuora-600 dark:hover:text-zuora-400"
+          >
+            Copy API field name
+          </button>
+        </div>
+      )}
     </div>
-
   );
 
 
@@ -260,7 +292,11 @@ export const FormField = ({ field, value, onChange, onTouched, path = '', classN
 
   const renderInput = () => {
 
-    const baseClasses = "w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-zuora-500 focus:border-transparent text-slate-900 dark:text-white text-sm placeholder:text-xs placeholder-slate-400 dark:placeholder-slate-600 transition-colors duration-200";
+    const baseClasses = `w-full px-3 py-2 bg-white dark:bg-slate-950 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:border-transparent text-slate-900 dark:text-white text-sm placeholder:text-xs placeholder-slate-400 dark:placeholder-slate-600 transition-colors duration-200 ${
+      error
+        ? 'border-rose-400 dark:border-rose-500 focus:ring-rose-400/40'
+        : 'border-slate-300 dark:border-slate-700 focus:ring-zuora-500'
+    }`;
 
 
 
@@ -569,7 +605,7 @@ export const FormField = ({ field, value, onChange, onTouched, path = '', classN
         </div>
 
         {isExpanded && renderInput()}
-
+        {error && <p className="text-xs text-rose-600 dark:text-rose-400">{error}</p>}
       </div>
 
     );
@@ -582,7 +618,7 @@ export const FormField = ({ field, value, onChange, onTouched, path = '', classN
 
     return (
 
-      <div className={`flex items-center h-full py-2 ${className}`}>
+      <div className={`space-y-1 py-2 ${className}`}>
 
         <LabelWithTooltip 
 
@@ -608,6 +644,8 @@ export const FormField = ({ field, value, onChange, onTouched, path = '', classN
 
         />
 
+        {error && <p className="ml-6 text-xs text-rose-600 dark:text-rose-400">{error}</p>}
+
       </div>
 
     );
@@ -623,6 +661,8 @@ export const FormField = ({ field, value, onChange, onTouched, path = '', classN
       <LabelWithTooltip />
 
       {renderInput()}
+
+      {error && <p className="text-xs text-rose-600 dark:text-rose-400">{error}</p>}
 
     </div>
 

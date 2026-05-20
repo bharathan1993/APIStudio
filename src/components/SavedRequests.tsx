@@ -136,6 +136,25 @@ export const SavedRequests = ({
       <div className="mt-3 text-xs font-mono text-slate-600 dark:text-slate-400 break-all">
         {request.endpointId}
       </div>
+      {(request.pathParams || request.queryParams || request.environmentId) && (
+        <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+          {request.environmentId && (
+            <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-slate-500 dark:text-slate-400">
+              {request.environmentId}
+            </span>
+          )}
+          {request.pathParams && (
+            <span className="rounded-full bg-zuora-50 dark:bg-zuora-500/10 px-2 py-0.5 text-zuora-700 dark:text-zuora-300">
+              path {Object.keys(request.pathParams).length}
+            </span>
+          )}
+          {request.queryParams && (
+            <span className="rounded-full bg-sky-50 dark:bg-sky-500/10 px-2 py-0.5 text-sky-700 dark:text-sky-300">
+              query {Object.keys(request.queryParams).length}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 

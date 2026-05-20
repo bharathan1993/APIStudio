@@ -6,16 +6,20 @@ import { EnvironmentSelector } from './EnvironmentSelector';
 
 interface ApiFormProps {
   endpoint: ApiEndpoint;
-  onSubmit: (data: any, customHeaders?: Record<string, string>, pathParams?: Record<string, any>) => void;
+  onSubmit: (data: any, customHeaders?: Record<string, string>, pathParams?: Record<string, any>, queryParams?: Record<string, any>) => void;
   isLoading: boolean;
   formId?: string;
   showSubmit?: boolean;
+  authToken?: string;
+  useProxy?: boolean;
   selectedEnvironmentId?: string;
   onEnvironmentChange?: (environmentId: string) => void;
   onFormDataChange?: (data: any) => void;
   onHeadersChange?: (headers?: Record<string, string>) => void;
   onPathParamsChange?: (pathParams?: Record<string, any>) => void;
+  onQueryParamsChange?: (queryParams?: Record<string, any>) => void;
   prefillData?: Record<string, any>;
+  prefillQueryParams?: Record<string, any>;
   prefillHeaders?: Record<string, string>;
   prefillPathParams?: Record<string, any>;
   prefillId?: string;
@@ -41,19 +45,24 @@ export const ApiForm = ({
   isLoading,
   formId,
   showSubmit = true,
+  authToken,
+  useProxy = false,
   selectedEnvironmentId,
   onEnvironmentChange,
   onFormDataChange,
   onHeadersChange,
   onPathParamsChange,
+  onQueryParamsChange,
   prefillData,
+  prefillQueryParams,
   prefillHeaders,
   prefillPathParams,
   prefillId
 }: ApiFormProps) => {
-  const [activeTab, setActiveTab] = useState<'body' | 'headers'>('body');
+  const [activeTab, setActiveTab] = useState<'params' | 'body' | 'headers'>('params');
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [pathParams, setPathParams] = useState<Record<string, any>>({});
+  const [queryParams, setQueryParams] = useState<Record<string, any>>({});
   const [customHeaders, setCustomHeaders] = useState<HeaderRow[]>([createHeaderRow()]);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [jsonMode, setJsonMode] = useState(false);
@@ -61,6 +70,9 @@ export const ApiForm = ({
   const [jsonError, setJsonError] = useState('');
   const [fieldRefOpen, setFieldRefOpen] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [fieldSearch, setFieldSearch] = useState('');
+  const [fieldFilter, setFieldFilter] = useState<'all' | 'required' | 'common' | 'filled' | 'issues'>('all');
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const touchedFieldsRef = useRef<Set<string>>(new Set());
   const jsonDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -94,6 +106,7 @@ export const ApiForm = ({
     const initData: Record<string, any> = {};
     const initExpanded: Record<string, boolean> = {};
     const initPathParams: Record<string, any> = {};
+    const initQueryParams: Record<string, any> = {};
 
     endpoint.bodyFields?.forEach((field) => {
       if (field.required && field.defaultValue !== undefined) {
@@ -114,6 +127,10 @@ export const ApiForm = ({
       initPathParams[param.name] = param.defaultValue || '';
     });
 
+    endpoint.queryParams?.forEach((param) => {
+      initQueryParams[param.name] = param.defaultValue ?? '';
+    });
+
     // Ensure all sections are initialized
     Object.keys(groupedFields.sections).forEach(section => {
         if (expandedSections[section] === undefined) {
@@ -123,13 +140,17 @@ export const ApiForm = ({
 
     setFormData(initData);
     setPathParams(initPathParams);
+    setQueryParams(initQueryParams);
     setExpandedSections(initExpanded);
     setCustomHeaders([createHeaderRow()]);
-    setActiveTab('body');
+    setActiveTab('params');
     setJsonMode(false);
     setJsonText('');
     setJsonError('');
     setFieldRefOpen(false);
+    setFieldSearch('');
+    setFieldFilter('all');
+    setValidationErrors({});
     touchedFieldsRef.current = new Set();
   }, [endpoint]); // Note: relying on endpoint change to reset
 
@@ -282,6 +303,18 @@ export const ApiForm = ({
   }, [pathParams, onPathParamsChange]);
 
   useEffect(() => {
+    if (onQueryParamsChange) {
+      const compact = Object.entries(queryParams).reduce<Record<string, any>>((acc, [key, value]) => {
+        if (value === '' || value === undefined || value === null) return acc;
+        if (Array.isArray(value) && value.length === 0) return acc;
+        acc[key] = value;
+        return acc;
+      }, {});
+      onQueryParamsChange(Object.keys(compact).length ? compact : undefined);
+    }
+  }, [queryParams, onQueryParamsChange]);
+
+  useEffect(() => {
     if (!prefillId) return;
     if (prefillData) {
       setFormData(prefillData);
@@ -293,6 +326,8 @@ export const ApiForm = ({
     }
     setCustomHeaders(headersToRows(prefillHeaders));
     setPathParams(prefillPathParams || {});
+    setQueryParams(prefillQueryParams || {});
+    setValidationErrors({});
   }, [prefillId]);
 
   const handleFieldChange = (fieldName: string, value: any) => {
@@ -304,6 +339,13 @@ export const ApiForm = ({
 
   const handlePathParamChange = (paramName: string, value: any) => {
     setPathParams((prev) => ({
+      ...prev,
+      [paramName]: value,
+    }));
+  };
+
+  const handleQueryParamChange = (paramName: string, value: any) => {
+    setQueryParams((prev) => ({
       ...prev,
       [paramName]: value,
     }));
@@ -334,6 +376,10 @@ export const ApiForm = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const errors = validateRequest();
+    if (Object.keys(errors).length > 0) {
+      return;
+    }
     const dataForSubmit = buildRequestBody();
     const headerPairs = customHeaders
       .filter((header) => header.key.trim() !== '')
@@ -345,7 +391,8 @@ export const ApiForm = ({
     onSubmit(
       dataForSubmit,
       Object.keys(headerPairs).length > 0 ? headerPairs : undefined,
-      Object.keys(pathParams).length > 0 ? pathParams : undefined
+      Object.keys(pathParams).length > 0 ? pathParams : undefined,
+      Object.keys(getCompactQueryParams()).length > 0 ? getCompactQueryParams() : undefined
     );
   };
 
@@ -416,6 +463,24 @@ export const ApiForm = ({
     return { ...required, ...optional };
   };
 
+  const generateMinimumPayload = (fields: FieldDefinition[]): Record<string, any> => {
+    const result: Record<string, any> = {};
+    fields.forEach(field => {
+      if (field.required) {
+        result[field.name] = getFieldPlaceholder(field);
+      }
+    });
+    return result;
+  };
+
+  const loadMinimumPayload = () => {
+    if (!endpoint.bodyFields?.length) return;
+    const minimumPayload = generateMinimumPayload(endpoint.bodyFields);
+    setFormData(minimumPayload);
+    touchedFieldsRef.current = new Set();
+    markTouchedFromObject(minimumPayload);
+  };
+
   const switchToJsonMode = () => {
     const current = previewData;
     if (Object.keys(current).length) {
@@ -468,6 +533,17 @@ export const ApiForm = ({
     };
   }, []);
 
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        const form = formId ? document.getElementById(formId) as HTMLFormElement | null : null;
+        form?.requestSubmit();
+      }
+    };
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, [formId]);
+
   const formatDescription = (desc: string) => {
     if (!desc) return generateFallbackDescription();
 
@@ -518,22 +594,195 @@ export const ApiForm = ({
     return `${action} ${resourceName} information in Zuora.`;
   };
 
+  const hasValue = (value: any) => {
+    if (Array.isArray(value)) return value.some((item) => !isValueEmpty(item));
+    return !isValueEmpty(value);
+  };
+
+  const getCompactQueryParams = () =>
+    Object.entries(queryParams).reduce<Record<string, any>>((acc, [key, value]) => {
+      if (!hasValue(value)) return acc;
+      acc[key] = value;
+      return acc;
+    }, {});
+
+  const validateFieldValue = (field: FieldDefinition, value: any, location: string) => {
+    if (field.required && !hasValue(value)) {
+      return `${field.label || field.name} is required.`;
+    }
+    if (!hasValue(value)) return undefined;
+    if (field.type === 'number' && typeof value !== 'number') {
+      return `${field.label || field.name} must be a number.`;
+    }
+    if (field.minLength !== undefined && String(value).length < field.minLength) {
+      return `${field.label || field.name} must be at least ${field.minLength} characters.`;
+    }
+    if (field.maxLength !== undefined && String(value).length > field.maxLength) {
+      return `${field.label || field.name} must be ${field.maxLength} characters or fewer.`;
+    }
+    if (field.pattern) {
+      try {
+        if (!new RegExp(field.pattern).test(String(value))) {
+          return `${field.label || field.name} does not match the expected format.`;
+        }
+      } catch {
+        return undefined;
+      }
+    }
+    if (field.enum?.length && !field.enum.includes(String(value))) {
+      return `${field.label || field.name} must be one of the accepted values.`;
+    }
+    if (field.required && location === 'path' && String(value).includes('{')) {
+      return `${field.label || field.name} must be resolved before running.`;
+    }
+    return undefined;
+  };
+
+  const validateRequest = () => {
+    const errors: Record<string, string> = {};
+
+    endpoint.pathParams?.forEach((field) => {
+      const error = validateFieldValue(field, pathParams[field.name], 'path');
+      if (error) errors[`path:${field.name}`] = error;
+    });
+
+    endpoint.queryParams?.forEach((field) => {
+      const error = validateFieldValue(field, queryParams[field.name], 'query');
+      if (error) errors[`query:${field.name}`] = error;
+    });
+
+    endpoint.bodyFields?.forEach((field) => {
+      const value = formData[field.name];
+      const error = validateFieldValue(field, value, 'body');
+      if (error) errors[`body:${field.name}`] = error;
+    });
+
+    if (jsonMode && jsonError) {
+      errors['body:json'] = jsonError;
+    }
+
+    setValidationErrors(errors);
+    return errors;
+  };
+
+  const validationCount = Object.keys(validationErrors).length;
+  const requiredInputCount =
+    (endpoint.pathParams?.filter((field) => field.required).length || 0) +
+    (endpoint.queryParams?.filter((field) => field.required).length || 0) +
+    (endpoint.bodyFields?.filter((field) => field.required).length || 0);
+  const filledInputCount =
+    Object.values(pathParams).filter(hasValue).length +
+    Object.values(queryParams).filter(hasValue).length +
+    Object.keys(previewData).length;
+
+  const buildFinalUrl = () => {
+    const selectedEnv = endpoint.environments?.find(env => env.id === selectedEnvironmentId);
+    const baseUrl = selectedEnv?.baseUrl || endpoint.baseUrl;
+    let finalPath = endpoint.path;
+    endpoint.pathParams?.forEach((param) => {
+      const value = hasValue(pathParams[param.name]) ? encodeURIComponent(String(pathParams[param.name])) : `{${param.name}}`;
+      finalPath = finalPath.replace(`{${param.name}}`, value);
+    });
+    const params = new URLSearchParams();
+    Object.entries(getCompactQueryParams()).forEach(([key, value]) => {
+      if (Array.isArray(value)) {
+        value.forEach((item) => params.append(key, String(item)));
+      } else {
+        params.append(key, String(value));
+      }
+    });
+    const query = params.toString();
+    return `${baseUrl}${finalPath}${query ? `?${query}` : ''}`;
+  };
+
+  const isCommonField = (field: FieldDefinition) => {
+    const haystack = `${field.name} ${field.label || ''} ${field.description || ''}`.toLowerCase();
+    return ['account', 'subscription', 'invoice', 'payment', 'date', 'status', 'number', 'id', 'page', 'cursor', 'filter'].some((term) => haystack.includes(term));
+  };
+
+  const filterFields = (fields: FieldDefinition[]) => {
+    const query = fieldSearch.trim().toLowerCase();
+    return fields.filter((field) => {
+      const matchesSearch = !query || `${field.name} ${field.label || ''} ${field.description || ''}`.toLowerCase().includes(query);
+      if (!matchesSearch) return false;
+      if (fieldFilter === 'required') return field.required;
+      if (fieldFilter === 'common') return isCommonField(field);
+      if (fieldFilter === 'filled') return hasValue(formData[field.name]);
+      if (fieldFilter === 'issues') return Boolean(validationErrors[`body:${field.name}`]);
+      return true;
+    });
+  };
+
   return (
     <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm dark:shadow-xl dark:shadow-black/20 transition-colors duration-200">
       <div className="mb-6">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-2xl font-bold text-slate-800 dark:text-white tracking-tight">{endpoint.name}</h2>
-          <span className={`px-3 py-1 rounded-full text-sm font-semibold border ${
-            endpoint.method === 'POST' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20' :
-            endpoint.method === 'GET' ? 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-200 dark:border-sky-500/20' :
-            endpoint.method === 'PUT' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20' :
-            endpoint.method === 'DELETE' ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-500/20' :
-            'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-600'
-          }`}>
-            {endpoint.method}
-          </span>
+        <div className="flex flex-col gap-4 mb-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              <span className={`px-3 py-1 rounded-full text-sm font-semibold border ${
+                endpoint.method === 'POST' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20' :
+                endpoint.method === 'GET' ? 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-200 dark:border-sky-500/20' :
+                endpoint.method === 'PUT' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20' :
+                endpoint.method === 'DELETE' ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-500/20' :
+                'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-600'
+              }`}>
+                {endpoint.method}
+              </span>
+              <h2 className="text-2xl font-bold text-slate-800 dark:text-white tracking-tight">{endpoint.name}</h2>
+            </div>
+            <p className="text-slate-600 dark:text-slate-400 mb-3">{formatDescription(endpoint.description)}</p>
+            <code className="text-xs bg-slate-100 dark:bg-slate-950 text-slate-600 dark:text-slate-300 px-2 py-1 rounded border border-slate-200 dark:border-slate-800 font-mono break-all">
+              {endpoint.path}
+            </code>
+          </div>
+          {showSubmit && (
+            <button
+              type="submit"
+              form={formId}
+              disabled={isLoading}
+              className={`bg-gradient-to-r from-zuora-600 to-zuora-600 text-white py-3 px-6 rounded-lg font-bold shadow-lg shadow-zuora-500/25 hover:shadow-zuora-500/40 hover:from-zuora-500 hover:to-zuora-500 focus:outline-none focus:ring-2 focus:ring-zuora-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900 transition-all transform active:scale-[0.99] ${
+                isLoading ? 'opacity-70 cursor-not-allowed' : ''
+              }`}
+            >
+              {isLoading ? 'Running...' : 'Run Request'}
+              {!isLoading && <span className="ml-2 text-xs font-medium opacity-80">⌘ Enter</span>}
+            </button>
+          )}
         </div>
-        <p className="text-slate-600 dark:text-slate-400 mb-4">{formatDescription(endpoint.description)}</p>
+
+        <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-2">
+          <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500">Auth</div>
+            <div className={`text-sm font-semibold ${authToken ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+              {authToken ? 'Token ready' : 'Needs token'}
+            </div>
+          </div>
+          <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500">Proxy</div>
+            <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">{useProxy ? 'Enabled' : 'Direct'}</div>
+          </div>
+          <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500">Required</div>
+            <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">{requiredInputCount} inputs</div>
+          </div>
+          <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500">Progress</div>
+            <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">{filledInputCount} filled</div>
+          </div>
+        </div>
+
+        {validationCount > 0 && (
+          <div className="mb-4 rounded-lg border border-rose-200 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 p-3">
+            <div className="text-sm font-semibold text-rose-700 dark:text-rose-300 mb-1">
+              {validationCount} issue{validationCount === 1 ? '' : 's'} to fix before running
+            </div>
+            <ul className="space-y-1 text-xs text-rose-600 dark:text-rose-300">
+              {Object.entries(validationErrors).slice(0, 5).map(([key, message]) => (
+                <li key={key}>{message}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Environment Selector */}
         {endpoint.environments && endpoint.environments.length > 0 && selectedEnvironmentId && onEnvironmentChange && (
@@ -546,59 +795,38 @@ export const ApiForm = ({
           </div>
         )}
 
-        {/* Path Parameters */}
-        {endpoint.pathParams && endpoint.pathParams.length > 0 && (
-          <div className="mb-6 p-4 bg-gradient-to-r from-zuora-50 to-zuora-50 dark:from-zuora-500/10 dark:to-zuora-500/10 rounded-lg border border-zuora-200 dark:border-zuora-500/30 transition-colors duration-200">
-            <div className="flex items-center gap-2 mb-3">
-              <svg className="w-5 h-5 text-zuora-600 dark:text-zuora-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-              <h4 className="font-semibold text-zuora-900 dark:text-zuora-300 text-sm uppercase tracking-wider">
-                Path Parameters
-              </h4>
-            </div>
-            <div className="space-y-3">
-              {endpoint.pathParams.map((param) => (
-                <div key={param.name}>
-                  <FormField
-                    field={param}
-                    value={pathParams[param.name]}
-                    onChange={(value) => handlePathParamChange(param.name, value)}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Final URL */}
-        {(() => {
-          const selectedEnv = endpoint.environments?.find(env => env.id === selectedEnvironmentId);
-          const baseUrl = selectedEnv?.baseUrl || endpoint.baseUrl;
-
-          // Replace path parameters in the URL
-          let finalPath = endpoint.path;
-          if (endpoint.pathParams) {
-            endpoint.pathParams.forEach((param) => {
-              const value = pathParams[param.name] || `{${param.name}}`;
-              finalPath = finalPath.replace(`{${param.name}}`, value);
-            });
-          }
-
-          return (
-            <div className="mb-6">
-              <p className="text-xs text-slate-500 mb-1 font-medium uppercase tracking-wider">Endpoint URL:</p>
-              <code className="text-sm bg-slate-100 dark:bg-slate-950 text-zuora-600 dark:text-zuora-300 px-3 py-2 rounded-lg block break-all border border-slate-200 dark:border-slate-800 font-mono transition-colors duration-200">
-                {baseUrl}{finalPath}
-              </code>
-            </div>
-          );
-        })()}
+        <div className="mb-6">
+          <p className="text-xs text-slate-500 mb-1 font-medium uppercase tracking-wider">Live Request URL:</p>
+          <code className="text-sm bg-slate-100 dark:bg-slate-950 text-zuora-600 dark:text-zuora-300 px-3 py-2 rounded-lg block break-all border border-slate-200 dark:border-slate-800 font-mono transition-colors duration-200">
+            {buildFinalUrl()}
+          </code>
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            Only filled optional query and body fields are sent.
+          </p>
+        </div>
 
         {/* Tabs */}
         <div className="border-b border-slate-200 dark:border-slate-800 flex items-end justify-between">
           <nav className="flex space-x-6">
             <button
+              type="button"
+              onClick={() => setActiveTab('params')}
+              className={`pb-3 text-sm font-medium transition-colors border-b-2 ${
+                activeTab === 'params'
+                  ? 'border-zuora-600 dark:border-zuora-400 text-zuora-600 dark:text-zuora-400'
+                  : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+              }`}
+            >
+              Params
+              {((endpoint.pathParams?.length || 0) + Object.keys(getCompactQueryParams()).length) > 0 && (
+                <span className="ml-2 rounded-full bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px]">
+                  {(endpoint.pathParams?.length || 0) + Object.keys(getCompactQueryParams()).length}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveTab('body')}
               className={`pb-3 text-sm font-medium transition-colors border-b-2 ${
                 activeTab === 'body'
@@ -609,6 +837,7 @@ export const ApiForm = ({
               Request Body
             </button>
             <button
+              type="button"
               onClick={() => setActiveTab('headers')}
               className={`pb-3 text-sm font-medium transition-colors border-b-2 flex items-center gap-2 ${
                 activeTab === 'headers'
@@ -660,6 +889,55 @@ export const ApiForm = ({
       </div>
 
       <form id={formId} onSubmit={handleSubmit} className="space-y-6">
+        {/* Params Tab */}
+        <div className={activeTab === 'params' ? 'block' : 'hidden'}>
+          <div className="space-y-6">
+            <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40 p-4">
+              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">Path parameters</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                Required values that replace placeholders in the endpoint path.
+              </p>
+              {endpoint.pathParams && endpoint.pathParams.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {endpoint.pathParams.map((param) => (
+                    <FormField
+                      key={param.name}
+                      field={param}
+                      value={pathParams[param.name]}
+                      onChange={(value) => handlePathParamChange(param.name, value)}
+                      error={validationErrors[`path:${param.name}`]}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-slate-500 dark:text-slate-400">This endpoint has no path parameters.</div>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40 p-4">
+              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">Query parameters</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                Filters, pagination, expansions, and other GET/list controls. Empty optional values are omitted.
+              </p>
+              {endpoint.queryParams && endpoint.queryParams.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {endpoint.queryParams.map((param) => (
+                    <FormField
+                      key={param.name}
+                      field={param}
+                      value={queryParams[param.name]}
+                      onChange={(value) => handleQueryParamChange(param.name, value)}
+                      error={validationErrors[`query:${param.name}`]}
+                      className={param.type === 'array' || param.type === 'textarea' ? 'col-span-1 md:col-span-2' : ''}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-slate-500 dark:text-slate-400">This endpoint has no query parameters.</div>
+              )}
+            </div>
+          </div>
+        </div>
         
         {/* Body Tab */}
         <div className={activeTab === 'body' ? 'block' : 'hidden'}>
@@ -684,6 +962,20 @@ export const ApiForm = ({
                         className="text-xs font-medium text-zuora-600 dark:text-zuora-400 hover:text-zuora-700 dark:hover:text-zuora-300 hover:underline transition-colors"
                       >
                         Load Example
+                      </button>
+                    )}
+                    {endpoint.bodyFields?.some((field) => field.required) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const minimumPayload = generateMinimumPayload(endpoint.bodyFields!);
+                          const text = JSON.stringify(minimumPayload, null, 2);
+                          setJsonText(text);
+                          applyJsonToForm(text);
+                        }}
+                        className="text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:underline transition-colors"
+                      >
+                        Minimum Payload
                       </button>
                     )}
                     <button
@@ -800,6 +1092,45 @@ export const ApiForm = ({
             ) : (
               /* ── UI form mode ── */
               <div className="space-y-4">
+                <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40 p-3 space-y-3">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Payload navigator</h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Search or narrow large request bodies by required, common, filled, or problematic fields.
+                      </p>
+                    </div>
+                    <input
+                      type="search"
+                      value={fieldSearch}
+                      onChange={(event) => setFieldSearch(event.target.value)}
+                      placeholder="Search fields..."
+                      className="w-full lg:w-72 px-3 py-2 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-zuora-500 focus:border-transparent transition-colors"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      ['all', 'All'],
+                      ['required', 'Required only'],
+                      ['common', 'Common TAM fields'],
+                      ['filled', 'Fields with values'],
+                      ['issues', 'Validation issues'],
+                    ].map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setFieldFilter(value as typeof fieldFilter)}
+                        className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                          fieldFilter === value
+                            ? 'bg-zuora-50 dark:bg-zuora-500/10 text-zuora-700 dark:text-zuora-300 border-zuora-200 dark:border-zuora-500/30'
+                            : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:text-slate-700 dark:hover:text-slate-200'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
                   <div className="space-x-2">
                     <button
@@ -818,6 +1149,15 @@ export const ApiForm = ({
                     </button>
                   </div>
                   <div className="space-x-4">
+                    {endpoint.bodyFields?.some((field) => field.required) && (
+                      <button
+                        type="button"
+                        onClick={loadMinimumPayload}
+                        className="text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:underline transition-colors"
+                      >
+                        Minimum Payload
+                      </button>
+                    )}
                     {endpoint.exampleRequest && (
                       <button
                         type="button"
@@ -846,13 +1186,14 @@ export const ApiForm = ({
                         Required
                       </h4>
                     </div>
-                    {groupedFields.required.map((field) => (
+                    {filterFields(groupedFields.required).map((field) => (
                       <FormField
                         key={field.name}
                         field={field}
                         value={formData[field.name]}
                         onChange={(value) => handleFieldChange(field.name, value)}
                         onTouched={markTouched}
+                        error={validationErrors[`body:${field.name}`]}
                         className={field.type === 'object' || field.type === 'array' || field.type === 'textarea' ? 'col-span-1 md:col-span-2' : ''}
                       />
                     ))}
@@ -864,10 +1205,13 @@ export const ApiForm = ({
                   <FieldSection
                     key={sectionName}
                     title={sectionName}
-                    fields={fields}
+                    fields={filterFields(fields)}
                     formData={formData}
                     onFieldChange={handleFieldChange}
                     onFieldTouched={markTouched}
+                    fieldErrors={Object.fromEntries(
+                      fields.map((field) => [field.name, validationErrors[`body:${field.name}`]]).filter(([, error]) => Boolean(error))
+                    )}
                     defaultExpanded={false}
                     isAdvanced={sectionName === 'Additional Fields'}
                     isExpanded={expandedSections[sectionName]}

@@ -7,6 +7,7 @@ export interface FieldDefinition {
   required: boolean;
   description?: string;
   placeholder?: string;
+  sampleValue?: any;
   defaultValue?: any;
   enum?: string[];
   minLength?: number;
@@ -75,6 +76,7 @@ export interface SavedRequest {
   environmentId?: string;
   folderId?: string;
   data?: Record<string, any>;
+  queryParams?: Record<string, any>;
   customHeaders?: Record<string, string>;
   pathParams?: Record<string, any>;
   createdAt: number;

@@ -8,9 +8,21 @@ interface SidebarProps {
   endpoints: ApiEndpoint[];
   isOpen: boolean;
   onClose: () => void;
+  favoriteEndpointIds?: string[];
+  recentEndpointIds?: string[];
+  onToggleFavorite?: (endpointId: string) => void;
 }
 
-export const Sidebar = ({ currentView, onSelectView, endpoints, isOpen, onClose }: SidebarProps) => {
+export const Sidebar = ({
+  currentView,
+  onSelectView,
+  endpoints,
+  isOpen,
+  onClose,
+  favoriteEndpointIds = [],
+  recentEndpointIds = [],
+  onToggleFavorite,
+}: SidebarProps) => {
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
     accounts: true,
   });
@@ -92,6 +104,54 @@ export const Sidebar = ({ currentView, onSelectView, endpoints, isOpen, onClose 
     );
   };
 
+  const renderEndpointButton = (endpoint: ApiEndpoint) => (
+    <button
+      onClick={() => {
+        onSelectView(endpoint.id);
+        onClose();
+      }}
+      className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-xs font-medium transition-all duration-200 group ${
+        currentView === endpoint.id
+          ? 'bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-white'
+          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900/50 hover:text-slate-900 dark:hover:text-slate-200'
+      }`}
+    >
+      <span className="truncate mr-2">{endpoint.name}</span>
+      <span className="flex items-center gap-1.5">
+        {onToggleFavorite && (
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleFavorite(endpoint.id);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                event.stopPropagation();
+                onToggleFavorite(endpoint.id);
+              }
+            }}
+            className={`text-sm ${favoriteEndpointIds.includes(endpoint.id) ? 'text-amber-500' : 'text-slate-300 dark:text-slate-600'} hover:text-amber-500`}
+            title={favoriteEndpointIds.includes(endpoint.id) ? 'Remove favorite' : 'Add favorite'}
+          >
+            ★
+          </span>
+        )}
+        <span className={`text-[9px] px-1 py-0.5 rounded font-mono font-bold ${
+          endpoint.method === 'POST' ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400' :
+          endpoint.method === 'GET' ? 'bg-sky-100 dark:bg-sky-500/20 text-sky-700 dark:text-sky-400' :
+          endpoint.method === 'PUT' ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400' :
+          endpoint.method === 'DELETE' ? 'bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-400' :
+          'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+        }`}>
+          {endpoint.method}
+        </span>
+      </span>
+    </button>
+  );
+
   return (
     <>
       {/* Mobile Overlay */}
@@ -168,6 +228,44 @@ export const Sidebar = ({ currentView, onSelectView, endpoints, isOpen, onClose 
             </ul>
           </div>
 
+          {(favoriteEndpointIds.length > 0 || recentEndpointIds.length > 0) && (
+            <div>
+              <h3 className="px-4 text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+                TAM Shortcuts
+              </h3>
+              <div className="space-y-3">
+                {favoriteEndpointIds.length > 0 && (
+                  <div>
+                    <div className="px-4 mb-1 text-[11px] font-semibold text-amber-600 dark:text-amber-400">Favorites</div>
+                    <ul className="space-y-0.5">
+                      {favoriteEndpointIds
+                        .map((id) => endpoints.find((endpoint) => endpoint.id === id))
+                        .filter((endpoint): endpoint is ApiEndpoint => Boolean(endpoint))
+                        .slice(0, 8)
+                        .map((endpoint) => (
+                          <li key={`favorite-${endpoint.id}`}>{renderEndpointButton(endpoint)}</li>
+                        ))}
+                    </ul>
+                  </div>
+                )}
+                {recentEndpointIds.length > 0 && (
+                  <div>
+                    <div className="px-4 mb-1 text-[11px] font-semibold text-slate-500 dark:text-slate-400">Recently used</div>
+                    <ul className="space-y-0.5">
+                      {recentEndpointIds
+                        .map((id) => endpoints.find((endpoint) => endpoint.id === id))
+                        .filter((endpoint): endpoint is ApiEndpoint => Boolean(endpoint))
+                        .slice(0, 6)
+                        .map((endpoint) => (
+                          <li key={`recent-${endpoint.id}`}>{renderEndpointButton(endpoint)}</li>
+                        ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Section: API Categories */}
           <div>
             <h3 className="px-4 text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
@@ -209,30 +307,7 @@ export const Sidebar = ({ currentView, onSelectView, endpoints, isOpen, onClose 
                     {isExpanded && (
                       <ul className="mt-1 ml-4 space-y-0.5 border-l-2 border-slate-100 dark:border-slate-900 pl-2">
                         {filteredEndpoints.map((endpoint) => (
-                          <li key={endpoint.id}>
-                            <button
-                              onClick={() => {
-                                onSelectView(endpoint.id);
-                                onClose();
-                              }}
-                              className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-xs font-medium transition-all duration-200 group ${
-                                currentView === endpoint.id
-                                  ? 'bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-white'
-                                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900/50 hover:text-slate-900 dark:hover:text-slate-200'
-                              }`}
-                            >
-                              <span className="truncate mr-2">{endpoint.name}</span>
-                              <span className={`text-[9px] px-1 py-0.5 rounded font-mono font-bold ${
-                                endpoint.method === 'POST' ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400' :
-                                endpoint.method === 'GET' ? 'bg-sky-100 dark:bg-sky-500/20 text-sky-700 dark:text-sky-400' :
-                                endpoint.method === 'PUT' ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400' :
-                                endpoint.method === 'DELETE' ? 'bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-400' :
-                                'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
-                              }`}>
-                                {endpoint.method}
-                              </span>
-                            </button>
-                          </li>
+                          <li key={endpoint.id}>{renderEndpointButton(endpoint)}</li>
                         ))}
                       </ul>
                     )}

@@ -50,6 +50,21 @@ export const ResponseViewer = ({ response, error }: ResponseViewerProps) => {
   }
 
   const isSuccess = response.status >= 200 && response.status < 300;
+  const isClientError = response.status >= 400 && response.status < 500;
+  const isServerError = response.status >= 500;
+  const errorMessage =
+    typeof response.data === 'object' && response.data !== null
+      ? response.data.message || response.data.error || response.data.reason || response.data.errors?.[0]?.message
+      : undefined;
+  const suggestedAction = response.status === 400
+    ? 'Check required fields, formats, and conditional payload rules.'
+    : response.status === 401 || response.status === 403
+    ? 'Verify the OAuth token, tenant environment, and entity/org headers.'
+    : response.status === 404
+    ? 'Confirm the path parameter values and that the resource exists in this environment.'
+    : isServerError
+    ? 'Retry later or capture the request details for escalation.'
+    : undefined;
   const statusColorClass = isSuccess
     ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20'
     : response.status >= 400 && response.status < 500
@@ -128,6 +143,26 @@ export const ResponseViewer = ({ response, error }: ResponseViewerProps) => {
             </button>
           )}
         </div>
+
+        {!isSuccess && (
+          <div className={`mb-4 rounded-lg border p-4 ${
+            isClientError
+              ? 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/20'
+              : 'bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/20'
+          }`}>
+            <div className={`text-sm font-semibold mb-1 ${
+              isClientError ? 'text-amber-700 dark:text-amber-300' : 'text-rose-700 dark:text-rose-300'
+            }`}>
+              Request failed validation or processing
+            </div>
+            {errorMessage && (
+              <p className="text-sm text-slate-700 dark:text-slate-300 mb-2">{String(errorMessage)}</p>
+            )}
+            {suggestedAction && (
+              <p className="text-xs text-slate-600 dark:text-slate-400">{suggestedAction}</p>
+            )}
+          </div>
+        )}
 
         {activeTab === 'body' && (
           <div className="bg-slate-50 dark:bg-slate-950 rounded-lg p-4 overflow-x-auto border border-slate-200 dark:border-slate-800 shadow-inner transition-colors duration-200">

@@ -12,19 +12,14 @@ export class ApiExecutor {
   }
 
   async execute(request: ApiRequest): Promise<ApiResponse> {
-    const { endpoint, authToken, data, customHeaders, pathParams } = request;
+    const { endpoint, authToken, data, customHeaders, pathParams, queryParams } = request;
     const startTime = Date.now();
 
     let finalUrl = '';
     let config: AxiosRequestConfig = {};
     try {
       // Replace path parameters in the URL
-      let path = endpoint.path;
-      if (pathParams) {
-        Object.entries(pathParams).forEach(([key, value]) => {
-          path = path.replace(`{${key}}`, String(value));
-        });
-      }
+      const path = this.buildResolvedPath(endpoint, pathParams);
 
       // Build the request URL
       const headers: Record<string, string> = {
@@ -32,14 +27,16 @@ export class ApiExecutor {
         ...(customHeaders || {}),
       };
 
+      const queryString = this.buildQueryString(queryParams);
+
       if (this.useProxy) {
         // Use local proxy server
-        finalUrl = `${this.proxyUrl}${path}`;
+        finalUrl = `${this.proxyUrl}${path}${queryString}`;
         // Pass the base URL as a custom header
         headers['X-Target-URL'] = endpoint.baseUrl;
       } else {
         // Direct request
-        finalUrl = `${endpoint.baseUrl}${path}`;
+        finalUrl = `${endpoint.baseUrl}${path}${queryString}`;
       }
 
       config = {
@@ -114,9 +111,45 @@ export class ApiExecutor {
     }
   }
 
+  private buildResolvedPath(endpoint: ApiEndpoint, pathParams?: Record<string, any>): string {
+    let path = endpoint.path;
+    if (pathParams) {
+      Object.entries(pathParams).forEach(([key, value]) => {
+        path = path.replace(`{${key}}`, encodeURIComponent(String(value)));
+      });
+    }
+    return path;
+  }
+
+  private buildQueryString(queryParams?: Record<string, any>): string {
+    if (!queryParams) return '';
+
+    const searchParams = new URLSearchParams();
+    Object.entries(queryParams).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') return;
+      if (Array.isArray(value)) {
+        value.forEach((item) => {
+          if (item !== undefined && item !== null && item !== '') {
+            searchParams.append(key, String(item));
+          }
+        });
+        return;
+      }
+      searchParams.append(key, String(value));
+    });
+
+    const query = searchParams.toString();
+    return query ? `?${query}` : '';
+  }
+
+  private buildResolvedUrl(request: ApiRequest): string {
+    const path = this.buildResolvedPath(request.endpoint, request.pathParams);
+    return `${request.endpoint.baseUrl}${path}${this.buildQueryString(request.queryParams)}`;
+  }
+
   generateCurlCommand(request: ApiRequest): string {
     const { endpoint, authToken, data, customHeaders } = request;
-    let curl = `curl -X ${endpoint.method} "${endpoint.baseUrl}${endpoint.path}"`;
+    let curl = `curl -X ${endpoint.method} "${this.buildResolvedUrl(request)}"`;
 
     // Add headers
     if (endpoint.headers) {
@@ -154,7 +187,7 @@ export class ApiExecutor {
     let code = `const axios = require('axios');\n\n`;
     code += `const response = await axios({\n`;
     code += `  method: '${endpoint.method}',\n`;
-    code += `  url: '${endpoint.baseUrl}${endpoint.path}',\n`;
+    code += `  url: '${this.buildResolvedUrl(request)}',\n`;
 
     // Add headers
     code += `  headers: {\n`;
@@ -189,7 +222,7 @@ export class ApiExecutor {
   generatePythonCode(request: ApiRequest): string {
     const { endpoint, authToken, data, customHeaders } = request;
     let code = `import requests\nimport json\n\n`;
-    code += `url = "${endpoint.baseUrl}${endpoint.path}"\n\n`;
+    code += `url = "${this.buildResolvedUrl(request)}"\n\n`;
 
     // Add headers
     code += `headers = {\n`;

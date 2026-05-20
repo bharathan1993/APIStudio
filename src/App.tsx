@@ -28,12 +28,18 @@ function App() {
   const [liveFormData, setLiveFormData] = useState<Record<string, any>>({});
   const [liveHeaders, setLiveHeaders] = useState<Record<string, string> | undefined>();
   const [livePathParams, setLivePathParams] = useState<Record<string, any> | undefined>();
+  const [liveQueryParams, setLiveQueryParams] = useState<Record<string, any> | undefined>();
+  const [responseHistory, setResponseHistory] = useState<ApiResponse[]>([]);
   const [savedRequests, setSavedRequests] = useState<SavedRequest[]>([]);
   const [savedFolders, setSavedFolders] = useState<SavedFolder[]>([]);
   const [prefillRequest, setPrefillRequest] = useState<SavedRequest | null>(null);
+  const [favoriteEndpointIds, setFavoriteEndpointIds] = useState<string[]>([]);
+  const [recentEndpointIds, setRecentEndpointIds] = useState<string[]>([]);
   const { theme, toggleTheme } = useTheme();
   const formId = 'zuora-api-form';
   const savedRequestsKey = 'zuora_saved_requests';
+  const favoritesKey = 'zuora_favorite_endpoints';
+  const recentsKey = 'zuora_recent_endpoints';
 
   const loadSavedRequests = () => {
     try {
@@ -60,6 +66,15 @@ function App() {
     localStorage.setItem(savedRequestsKey, JSON.stringify({ requests, folders }));
   };
 
+  const loadStringArray = (key: string) => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(key) || '[]');
+      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+    } catch {
+      return [];
+    }
+  };
+
   useEffect(() => {
     // Load auth token and environment from localStorage
     const savedToken = localStorage.getItem('zuora_access_token');
@@ -79,6 +94,8 @@ function App() {
     const loaded = loadSavedRequests();
     setSavedRequests(loaded.requests);
     setSavedFolders(loaded.folders);
+    setFavoriteEndpointIds(loadStringArray(favoritesKey));
+    setRecentEndpointIds(loadStringArray(recentsKey));
   }, []);
 
   const handleViewChange = (view: string) => {
@@ -92,8 +109,24 @@ function App() {
         setError('');
         setCurrentRequest(null);
         setLiveFormData({}); // Reset live preview
+        setLiveQueryParams(undefined);
+        setRecentEndpointIds((prev) => {
+          const next = [endpoint.id, ...prev.filter((id) => id !== endpoint.id)].slice(0, 10);
+          localStorage.setItem(recentsKey, JSON.stringify(next));
+          return next;
+        });
       }
     }
+  };
+
+  const handleToggleFavoriteEndpoint = (endpointId: string) => {
+    setFavoriteEndpointIds((prev) => {
+      const next = prev.includes(endpointId)
+        ? prev.filter((id) => id !== endpointId)
+        : [endpointId, ...prev].slice(0, 20);
+      localStorage.setItem(favoritesKey, JSON.stringify(next));
+      return next;
+    });
   };
 
   const handleTokenGenerated = (token: string) => {
@@ -109,7 +142,8 @@ function App() {
     endpoint: ApiEndpoint,
     data: any,
     customHeaders?: Record<string, string>,
-    pathParams?: Record<string, any>
+    pathParams?: Record<string, any>,
+    queryParams?: Record<string, any>
   ) => {
     if (!authToken) {
       setError('Please generate an OAuth token first');
@@ -141,6 +175,7 @@ function App() {
       data,
       customHeaders,
       pathParams,
+      queryParams,
     };
 
     setCurrentRequest(request);
@@ -148,6 +183,7 @@ function App() {
     try {
       const result = await apiExecutor.execute(request);
       setResponse(result);
+      setResponseHistory((prev) => [result, ...prev].slice(0, 8));
     } catch (err: any) {
       setError(err.message || 'An error occurred while executing the request');
     } finally {
@@ -155,8 +191,8 @@ function App() {
     }
   };
 
-  const handleSubmit = async (data: any, customHeaders?: Record<string, string>, pathParams?: Record<string, any>) => {
-    await executeRequest(selectedEndpoint, data, customHeaders, pathParams);
+  const handleSubmit = async (data: any, customHeaders?: Record<string, string>, pathParams?: Record<string, any>, queryParams?: Record<string, any>) => {
+    await executeRequest(selectedEndpoint, data, customHeaders, pathParams, queryParams);
   };
 
   const handleSaveRequest = () => {
@@ -171,6 +207,7 @@ function App() {
       endpointId: selectedEndpoint.id,
       environmentId: selectedEnvironmentId,
       data: liveFormData,
+      queryParams: liveQueryParams,
       customHeaders: liveHeaders,
       pathParams: livePathParams,
       createdAt: Date.now(),
@@ -215,7 +252,7 @@ function App() {
       localStorage.setItem('zuora_environment', request.environmentId);
     }
     setSelectedEndpoint(endpoint);
-    executeRequest(endpoint, request.data || {}, request.customHeaders, request.pathParams);
+    executeRequest(endpoint, request.data || {}, request.customHeaders, request.pathParams, request.queryParams);
   };
 
   const handleDeleteSavedRequest = (id: string) => {
@@ -349,6 +386,9 @@ function App() {
         endpoints={zuoraEndpoints}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
+        favoriteEndpointIds={favoriteEndpointIds}
+        recentEndpointIds={recentEndpointIds}
+        onToggleFavorite={handleToggleFavoriteEndpoint}
       />
 
       {/* Main Content Area */}
@@ -454,13 +494,17 @@ function App() {
                       onSubmit={handleSubmit}
                       isLoading={isLoading}
                       formId={formId}
-                      showSubmit={false}
+                      showSubmit={true}
+                      authToken={authToken}
+                      useProxy={useProxy}
                       selectedEnvironmentId={selectedEnvironmentId}
                       onEnvironmentChange={handleEnvironmentChange}
                       onFormDataChange={setLiveFormData}
                       onHeadersChange={setLiveHeaders}
                       onPathParamsChange={setLivePathParams}
+                      onQueryParamsChange={setLiveQueryParams}
                       prefillData={prefillRequest?.data}
+                      prefillQueryParams={prefillRequest?.queryParams}
                       prefillHeaders={prefillRequest?.customHeaders}
                       prefillPathParams={prefillRequest?.pathParams}
                       prefillId={prefillRequest?.id}
@@ -469,29 +513,6 @@ function App() {
 
                   {/* Right Column - Response & Code */}
                   <div className="space-y-6 xl:sticky xl:top-6 xl:self-start xl:max-h-[calc(100vh-3rem)] xl:overflow-y-auto xl:pr-1">
-                    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm dark:shadow-xl dark:shadow-black/20 transition-colors duration-200">
-                      <button
-                        type="submit"
-                        form={formId}
-                        disabled={isLoading}
-                        className={`w-full bg-gradient-to-r from-zuora-600 to-zuora-600 text-white py-3 px-6 rounded-lg font-bold shadow-lg shadow-zuora-500/25 hover:shadow-zuora-500/40 hover:from-zuora-500 hover:to-zuora-500 focus:outline-none focus:ring-2 focus:ring-zuora-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900 transition-all transform active:scale-[0.99] ${
-                          isLoading ? 'opacity-70 cursor-not-allowed' : ''
-                        }`}
-                      >
-                        {isLoading ? (
-                          <span className="flex items-center justify-center gap-2">
-                            <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            Executing Request...
-                          </span>
-                        ) : (
-                          'Execute Request'
-                        )}
-                      </button>
-                    </div>
-                    
                     <JsonPreview data={liveFormData} onSave={handleSaveRequest} onEdit={handlePreviewEdit} />
 
                     <SavedRequests
@@ -507,6 +528,40 @@ function App() {
                       onDeleteFolder={handleDeleteFolder}
                       onMoveRequest={handleMoveSavedRequest}
                     />
+
+                    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm dark:shadow-xl dark:shadow-black/20 transition-colors duration-200">
+                      <h3 className="text-lg font-semibold text-slate-800 dark:text-white mb-4">Response History</h3>
+                      {responseHistory.length ? (
+                        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                          {responseHistory.map((item, index) => (
+                            <button
+                              key={`${item.status}-${item.duration}-${index}`}
+                              type="button"
+                              onClick={() => setResponse(item)}
+                              className="w-full text-left rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40 p-3 hover:border-zuora-300 dark:hover:border-zuora-500/40 transition-colors"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <span className={`text-xs font-bold font-mono ${
+                                  item.status >= 200 && item.status < 300
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : item.status >= 400 && item.status < 500
+                                    ? 'text-amber-600 dark:text-amber-400'
+                                    : 'text-rose-600 dark:text-rose-400'
+                                }`}>
+                                  {item.status} {item.statusText}
+                                </span>
+                                <span className="text-xs text-slate-500">{item.duration}ms</span>
+                              </div>
+                              <div className="mt-1 text-xs font-mono text-slate-500 dark:text-slate-400 truncate">
+                                {item.request?.url}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-slate-500">Run requests to build a lightweight troubleshooting timeline.</div>
+                      )}
+                    </div>
                     
                     <ResponseViewer response={response} error={error} />
                     <CodeGenerator request={currentRequest} />
